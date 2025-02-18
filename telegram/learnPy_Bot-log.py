@@ -6,7 +6,7 @@ from aiogram.filters import Command
 from aiogram import Router
 
 # Токен бота, полученный от BotFather
-TOKEN = "7971363257:AAFK4jnC0P_ALoyRXpjd0JjtxIRrwI2OakM"
+TOKEN = "  "
 
 # Инициализация бота и диспетчера
 bot = Bot(token=TOKEN)
@@ -37,39 +37,48 @@ def parse_move(move):
 
 # Функция для проверки, выиграл ли игрок с указанным символом (X или O)
 def is_winner(board, player):
-    # Проверка строк
     for row in board:
         if all(cell == player for cell in row):
             return True
-    
-    # Проверка столбцов
     for col in range(3):
         if all(board[row][col] == player for row in range(3)):
             return True
-    
-    # Проверка диагоналей
     if all(board[i][i] == player for i in range(3)) or all(board[i][2 - i] == player for i in range(3)):
         return True
-    
     return False
 
 # Функция для проверки, закончилась ли игра вничью
 def is_draw(board):
     return all(cell != ' ' for row in board for cell in row)
 
-# Функция для выбора случайного хода бота
-def bot_move(board, bot_symbol):
-    available_moves = [(r, c) for r in range(3) for c in range(3) if board[r][c] == ' ']
-    return random.choice(available_moves) if available_moves else None
+# Функция для выбора хода бота с выигрышной стратегией
+def bot_move(board, bot_symbol, player_symbol):
+    # Проверка на возможность победы бота
+    for r, c in [(r, c) for r in range(3) for c in range(3) if board[r][c] == ' ']:
+        board[r][c] = bot_symbol
+        if is_winner(board, bot_symbol):
+            return r, c
+        board[r][c] = ' '
+    
+    # Блокировка победы игрока
+    for r, c in [(r, c) for r in range(3) for c in range(3) if board[r][c] == ' ']:
+        board[r][c] = player_symbol
+        if is_winner(board, player_symbol):
+            board[r][c] = ' '
+            return r, c
+        board[r][c] = ' '
+    
+    # Иначе случайный ход
+    return random.choice([(r, c) for r in range(3) for c in range(3) if board[r][c] == ' '])
 
 # Обработчик команды /start
 @router.message(Command("start"))
 async def start_game(message: Message):
-    # Инициализация состояния игры для текущего чата
+    print("Бот запущен!")
     game_state[message.chat.id] = {
-        "board": create_board(),  # Создание пустой доски
-        "player_symbol": None,    # Символ игрока (X или O)
-        "bot_symbol": None        # Символ бота (O или X)
+        "board": create_board(),
+        "player_symbol": None,
+        "bot_symbol": None
     }
     await message.answer("Привет! Выбери, за кого играешь (X или O):")
 
@@ -77,63 +86,52 @@ async def start_game(message: Message):
 @router.message()
 async def game_handler(message: Message):
     chat_id = message.chat.id
-    # Если состояние игры для этого чата не инициализировано, запускаем игру
     if chat_id not in game_state:
         await start_game(message)
         return
     
     state = game_state[chat_id]
-    text = message.text.upper()  # Приводим текст сообщения к верхнему регистру
+    text = message.text.upper()
     
-    # Если игрок еще не выбрал символ (X или O)
     if state["player_symbol"] is None:
         if text in ['X', 'O']:
-            # Устанавливаем символы для игрока и бота
             state["player_symbol"] = text
             state["bot_symbol"] = 'O' if text == 'X' else 'X'
             await message.answer(f"Ты играешь за {state['player_symbol']}, я за {state['bot_symbol']}.")
-            await message.answer(f"Вот игровое поле:\n{print_board(state['board'])}\nТвой ход! Введи координаты (например, A1):")
+            if state["player_symbol"] == "O":
+                bot_r, bot_c = bot_move(state["board"], state["bot_symbol"], state["player_symbol"])
+                state["board"][bot_r][bot_c] = state["bot_symbol"]
+                await message.answer(f"Я сходил: {chr(bot_c + 65)}{bot_r + 1}\n{print_board(state['board'])}\nТвой ход!")
+            else:
+                await message.answer(f"Вот игровое поле:\n{print_board(state['board'])}\nТвой ход! Введи координаты (например, A1):")
         else:
             await message.answer("Некорректный выбор. Выбери X или O.")
         return
     
-    # Парсим ход игрока
     move = parse_move(text)
     if move:
         row, col = move
-        # Проверяем, свободна ли клетка
         if state["board"][row][col] == ' ':
-            # Делаем ход игрока
             state["board"][row][col] = state["player_symbol"]
-            # Проверяем, выиграл ли игрок
             if is_winner(state["board"], state["player_symbol"]):
                 await message.answer(f"{print_board(state['board'])}\nПоздравляю, ты победил!")
-                del game_state[chat_id]  # Удаляем состояние игры
+                del game_state[chat_id]
                 return
-            # Проверяем, закончилась ли игра вничью
             if is_draw(state["board"]):
                 await message.answer(f"{print_board(state['board'])}\nНичья!")
                 del game_state[chat_id]
                 return
-            
-            # Ход бота
-            bot_move_result = bot_move(state["board"], state["bot_symbol"])
-            if bot_move_result:
-                bot_r, bot_c = bot_move_result
-                state["board"][bot_r][bot_c] = state["bot_symbol"]
-                # Проверяем, выиграл ли бот
-                if is_winner(state["board"], state["bot_symbol"]):
-                    await message.answer(f"{print_board(state['board'])}\nБот победил! Попробуй еще раз.")
-                    del game_state[chat_id]
-                    return
-                # Проверяем, закончилась ли игра вничью
-                if is_draw(state["board"]):
-                    await message.answer(f"{print_board(state['board'])}\nНичья!")
-                    del game_state[chat_id]
-                    return
-            
-            # Показываем обновленное состояние доски и ждем хода игрока
-            await message.answer(f"{print_board(state['board'])}\nТвой ход! Введи координаты:")
+            bot_r, bot_c = bot_move(state["board"], state["bot_symbol"], state["player_symbol"])
+            state["board"][bot_r][bot_c] = state["bot_symbol"]
+            if is_winner(state["board"], state["bot_symbol"]):
+                await message.answer(f"{print_board(state['board'])}\nБот победил! Попробуй еще раз.")
+                del game_state[chat_id]
+                return
+            if is_draw(state["board"]):
+                await message.answer(f"{print_board(state['board'])}\nНичья!")
+                del game_state[chat_id]
+                return
+            await message.answer(f"Я сходил: {chr(bot_c + 65)}{bot_r + 1}\n{print_board(state['board'])}\nТвой ход!")
         else:
             await message.answer("Эта клетка уже занята, попробуй снова.")
     else:
@@ -141,6 +139,7 @@ async def game_handler(message: Message):
 
 # Основная функция для запуска бота
 async def main():
+    print("Бот запущен и ожидает команды...")
     await dp.start_polling(bot, skip_updates=True)
 
 # Точка входа в программу
