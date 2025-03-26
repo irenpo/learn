@@ -27,6 +27,8 @@ def is_draw(board):
 # Функция для хода бота
 def bot_move(board, bot_symbol, player_symbol):
     available_moves = [(r, c) for r in range(3) for c in range(3) if board[r][c] == ' ']
+    if not available_moves:
+        raise ValueError("No available moves left")
     for r, c in available_moves:
         board[r][c] = bot_symbol
         if is_winner(board, bot_symbol):
